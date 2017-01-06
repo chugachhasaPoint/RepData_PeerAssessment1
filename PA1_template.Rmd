@@ -7,20 +7,30 @@ output: html_document
 PA1_template.Rmd
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.path='Figures/')
+
 ```
 
 
 ## R Markdown of Steps Data
 In this report, data from blank will be anlayzed..... The following items are included in this document:
+
 * Code for reading in the dataset and/or processing the data
+
 * Histogram of the total number of steps taken each day
+
 * Mean and median number of steps taken each day
+
 * Time series plot of the average number of steps taken
+
 * The 5-minute interval that, on average, contains the maximum number of steps
+
 * Code to describe and show a strategy for imputing missing data
+
 * Histogram of the total number of steps taken each day after missing values are imputed
+
 * Panel plot comparing the average number of steps taken per 5-minute interval across weekdays and weekends
+
 * All of the R code needed to reproduce the results (numbers, plots, etc.) in the report. 
 
 
@@ -32,11 +42,14 @@ In this report, data from blank will be anlayzed..... The following items are in
 
 ```{r}
 require(RCurl)
+library(dplyr) ## Library is required for the "filter function"
+library(chron)
 
 download.file("https://github.com/rdpeng/RepData_PeerAssessment1/blob/master/activity.zip", destfile="activity.zip", mode="wb")
 unzip(zipfile = 'activity.zip')
 activityData <- read.csv('activity.csv')
-                            head(activityData)
+                           
+head(activityData)
 ```
 
 
@@ -45,36 +58,41 @@ activityData <- read.csv('activity.csv')
 
 ```{r}
 # Convert the factor "date" to an actual date
-activityData$dateLabel<-as.Date(activityData$date)
-#activityData$totalInterval<-as.Date(activityData$date)
+activityData$date<-as.Date(activityData$date)
 
-#sapply(activityData$steps ~ dateLabel, function(x) sum(is.na(x)))
+# Eliminate individual rows that are empty, independent of day
+rmNA_activityData <- subset(activityData, !is.na(activityData$steps))
 ```
 
 
 
 ##What is mean total number of steps taken per day? 
-*For this part of the assignment, you can ignore the missing values in the dataset.*
+*For this part of the assignment, you can ignore the missing values in the dataset, eliminate them.*
 
 1. Calculate the total number of steps taken per day
 
 ```{r}
-activityDateSum<-aggregate.data.frame(activityData$steps,by=list(activityData$dateLabel),FUN=sum)
+# Sum total steps per day
+rmNA_activityData_DateSum<-aggregate.data.frame(rmNA_activityData$steps,by=list(rmNA_activityData$date),FUN=sum, simplify = TRUE)
+
+colnames(rmNA_activityData_DateSum) <- c("date","steps")
+
+head(rmNA_activityData_DateSum)
 ```
 
 
 2. If you do not understand the difference between a histogram and a barplot, research the difference between them. Make a histogram of the total number of steps taken each day
 
 ```{r}
-hist(activityDateSum$x,xlab="Number of Steps Taken",ylab="Percent Total",main ="Total Steps per Day")
+hist(rmNA_activityData_DateSum$steps, xlab="Number of Steps Taken",ylab="Frequency",main ="Total Steps per Day", breaks = 20)
 ```
 
 
 3. Calculate and report the mean and median of the total number of steps taken per day
 
 ```{r}
-mean(activityDateSum$x,na.rm = TRUE)
-median(activityDateSum$x,na.rm = TRUE)
+mean(rmNA_activityData_DateSum$steps,na.rm = TRUE)
+median(rmNA_activityData_DateSum$steps,na.rm = TRUE)
 ```
 
 
@@ -84,7 +102,9 @@ median(activityDateSum$x,na.rm = TRUE)
 1. Make a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)
 
 ```{r}
-plot(activityData$steps,type ="l",xlab="5 min Intervals",ylab="Detected Steps",main = "Steps taken per 5min Intervals over All Days")
+steps_intMean <- aggregate(rmNA_activityData$steps, list(rmNA_activityData$interval), mean)
+
+plot(steps_intMean, type ="l",xlab="5 min Intervals",ylab="Detected Steps",main = "Steps taken per 5min Intervals over All Days")
 ```
 
 
@@ -92,7 +112,8 @@ plot(activityData$steps,type ="l",xlab="5 min Intervals",ylab="Detected Steps",m
 2. Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
 
 ```{r}
-max(activityData$steps,na.rm=TRUE)
+max_int_steps <- max(steps_intMean$x)
+steps_intMean$Group.1[steps_intMean$x == max_int_steps]
 ```
 
 
@@ -111,32 +132,53 @@ sum(is.na(activityData$steps))
 
 2. Devise a strategy for filling in all of the missing values in the dataset. The strategy does not need to be sophisticated. For example, you could use the mean/median for that day, or the mean for that 5-minute interval, etc.
 
-If all the values for a given day are NA, then I will set all of the step values to zero. If there are NA values interspersed within a day of recording, they will be replaced with the mean number of steps taken that day.
+My strategy relies on whether all the NAs are found in specific days. If all the values for a given day are NA, then I will set all of the step values to the mean step value for the corresponding interval. If there are NA values interspersed within days of recording, they will be replaced with the mean number of steps taken that interval over all the days. 
+
+
 
 3. Create a new dataset that is equal to the original dataset but with the missing data filled in.
 
 ```{r}
-actDateMean<-aggregate(activityData$steps, by=list(dateLabel=activityData$dateLabel), FUN=mean, rm.na = FALSE)
+# Find the daily means
+actIntvlMean<-aggregate(activityData$steps, by=list(interval=activityData$interval), FUN=mean, na.rm=TRUE)
+actDateMean<-aggregate(activityData$steps, by=list(date=activityData$date), FUN=mean, na.rm=FALSE)
+actDateSum<-aggregate(activityData$steps, by=list(date=activityData$date), FUN=sum, na.rm=FALSE) 
 
-rmNAactivityData <- activityData
+# There are 8 days where no data was collected. All other days hold complete datasets. This factors into the following logic
+sum(is.na(actDateMean$x))
+sum(is.na(actDateSum$x))
 
-for(i in 1:nrow(activityData)) {
-    if(is.na(actDateMean$x[activityData$dateLabel[i]]) && is.na(activityData$steps[i])) rmNAactivityData$steps[i] <- 0
-    if(!is.na(actDateMean$x[activityData$dateLabel[i]]) && is.na(activityData$steps[i])) rmNAactivityData$steps[i] == actDateMean$x[which(actDateMean$dateLabel == activityData$dateLabel[i])]
+mod_activityData <- activityData
+mod_activityData$steps<-as.numeric(mod_activityData$steps)
+
+
+# If the mean date for that specific day has a mean of NA, set that interval to the mean interval
+j <- 1
+for(i in 1:nrow(mod_activityData)){
+    if(is.na(actDateMean$x[which(actDateMean$date == mod_activityData$date[i])])){
+            mod_activityData$steps[i] <- actIntvlMean$x[j]
+            j <- j+1
+            if(j==289){j<-1}
+    } else {
+        mod_activityData$steps[i] <- activityData$steps[i]
+    }
 }
+sum(is.na(mod_activityData$steps))
 ```
 
 
 4. Make a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day. Do these values differ from the estimates from the first part of the assignment? What is the impact of imputing missing data on the estimates of the total daily number of steps?
 
 ```{r}
-rmNAactivityDateSum<-aggregate.data.frame(activityData$steps,by=list(activityData$dateLabel),FUN=sum)
-rmNAactDateMean<-aggregate(rmNAactivityData$steps, by=list(dateLabel=rmNAactivityData$dateLabel), FUN=mean, rm.na = FALSE)
-hist(rmNAactivityDateSum$x,xlab="Number of Steps Taken",ylab="Percent Total",main="Total Steps per Day, Cleaned Data")
-sum(is.na(rmNAactivityData$steps))
+mod_activity_DateSum<-aggregate(mod_activityData$steps,by=list(mod_activityData$date),FUN=sum)
+mod_activity_DateMean<-aggregate(mod_activityData$steps,by=list(mod_activityData$date),FUN=mean)
+colnames(mod_activity_DateMean) <- c("date","steps")
 
-mean(rmNAactivityDateSum$x,na.rm = TRUE)
-median(rmNAactivityDateSum$x,na.rm = TRUE)
+
+hist(mod_activity_DateSum$x,xlab="Number of Steps Taken",ylab="Frequency",main="Total Steps per Day, Cleaned Data",breaks = 20)
+
+mean(mod_activity_DateSum$x,na.rm = TRUE)
+median(mod_activity_DateSum$x,na.rm = TRUE)
 ```
 Given my strategy, the effect of NA values seems to be made minimal. 
 
@@ -156,10 +198,9 @@ weekDayType <- function(date) {
      }
 }
 
-rmNAactivityData$dayType <- as.factor(sapply(rmNAactivityData$dateLabel, weekDayType))
-rmNAactDateMean$dayType <- as.factor(sapply(rmNAactDateMean$dateLabel, weekDayType))
+mod_activityData$dayType <- as.factor(sapply(mod_activityData$date, weekDayType))
 
-str(rmNAactivityData)
+head(mod_activityData)
 ```
 
 
@@ -167,5 +208,10 @@ str(rmNAactivityData)
 
 ```{r}
 library(lattice)
-xyplot(rmNAactDateMean$x ~ rmNAactDateMean$dateLabel| factor(dayType), data = rmNAactDateMean, type = "l")
+mod_actIntvlMean<-aggregate(steps ~ dayType + interval, data = mod_activityData, FUN = mean)
+
+xyplot(mod_actIntvlMean$steps ~ mod_actIntvlMean$interval| factor(dayType), data = mod_actIntvlMean, type = "l",xlab="Interval",ylab="Number of steps",layout = c(1, 2))
 ```
+
+
+It appears weekdays start earlier than weekends, and weekends are have more step activity overall. 
